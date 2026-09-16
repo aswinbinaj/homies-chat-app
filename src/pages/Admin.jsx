@@ -292,7 +292,7 @@ export const Admin = () => {
               onChange={(e) => setPasscodeInput(e.target.value)}
               required
               autoFocus
-              helperText="Set via VITE_ADMIN_PASSCODE in .env (Default: Admin@9900)"
+              helperText="Master passcode required to unlock management controls"
             />
 
             <Button
