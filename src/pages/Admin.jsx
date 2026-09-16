@@ -93,7 +93,7 @@ export const Admin = () => {
     if (!isSupabaseConfigured) return;
     setLoadingInvites(true);
     try {
-      const { data, error } = await supabase
+      let queryResult = await supabase
         .from('invites')
         .select(`
           id,
@@ -106,6 +106,15 @@ export const Admin = () => {
           profiles:used_by (username)
         `)
         .order('created_at', { ascending: false });
+
+      if (queryResult.error && (queryResult.error.code === 'PGRST200' || queryResult.error.message?.includes('relationship'))) {
+        queryResult = await supabase
+          .from('invites')
+          .select('id, code, created_at, expires_at, used, used_by, created_by')
+          .order('created_at', { ascending: false });
+      }
+
+      const { data, error } = queryResult;
 
       if (!error && data) {
         setInvites(data);

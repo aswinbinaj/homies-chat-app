@@ -41,7 +41,7 @@ export const useMessages = (currentUser) => {
 
     try {
       const nowIso = new Date().toISOString();
-      const { data, error } = await supabase
+      let queryResult = await supabase
         .from('messages')
         .select(`
           id,
@@ -58,22 +58,73 @@ export const useMessages = (currentUser) => {
         .order('created_at', { ascending: true })
         .limit(100);
 
+      // Graceful fallback if foreign key relationship is missing from schema cache (PGRST200)
+      if (queryResult.error && (queryResult.error.code === 'PGRST200' || queryResult.error.message?.includes('relationship'))) {
+        console.warn('PGRST200 detected, falling back to direct message retrieval...');
+        queryResult = await supabase
+          .from('messages')
+          .select('id, user_id, message, created_at, expires_at')
+          .gt('expires_at', nowIso)
+          .order('created_at', { ascending: true })
+          .limit(100);
+      }
+
+      const { data, error } = queryResult;
+
       if (error) {
         console.error('Error fetching messages:', error);
         setError('Unable to load chat messages.');
       } else {
-        // Cache profiles
-        data?.forEach((m) => {
+        const active = (data || []).filter(
+          (m) => new Date(m.expires_at).getTime() > Date.now()
+        );
+
+        // Find user IDs missing sender profile data
+        const missingUserIds = [
+          ...new Set(
+            active
+              .filter((m) => !m.profiles && !profileCache.current.has(m.user_id))
+              .map((m) => m.user_id)
+              .filter(Boolean)
+          ),
+        ];
+
+        if (missingUserIds.length > 0) {
+          try {
+            const { data: profilesData } = await supabase
+              .from('profiles')
+              .select('id, username, avatar_url')
+              .in('id', missingUserIds);
+
+            profilesData?.forEach((p) => {
+              profileCache.current.set(p.id, p);
+            });
+          } catch (pErr) {
+            console.warn('Failed to batch fetch profiles:', pErr);
+          }
+        }
+
+        const enriched = active.map((m) => {
+          const profile =
+            m.profiles ||
+            profileCache.current.get(m.user_id) || {
+              username: 'Friend',
+              avatar_url: null,
+            };
+          return {
+            ...m,
+            profiles: profile,
+          };
+        });
+
+        // Cache all resolved profiles
+        enriched.forEach((m) => {
           if (m.profiles && m.user_id) {
             profileCache.current.set(m.user_id, m.profiles);
           }
         });
 
-        // Double check expiration on client side before setting
-        const active = (data || []).filter(
-          (m) => new Date(m.expires_at).getTime() > Date.now()
-        );
-        setMessages(active);
+        setMessages(enriched);
         setError(null);
       }
     } catch (err) {

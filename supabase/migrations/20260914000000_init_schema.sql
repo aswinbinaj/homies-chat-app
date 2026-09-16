@@ -64,6 +64,26 @@ CREATE INDEX IF NOT EXISTS idx_invites_code ON public.invites (code);
 CREATE INDEX IF NOT EXISTS idx_invites_expires_at ON public.invites (expires_at);
 CREATE INDEX IF NOT EXISTS idx_invite_check_attempts_time ON public.invite_check_attempts (attempted_at);
 
+-- Relationships between public tables for PostgREST automatic resource embedding
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_messages_profiles'
+    ) THEN
+        ALTER TABLE public.messages
+            ADD CONSTRAINT fk_messages_profiles
+            FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+    END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'fk_invites_profiles'
+    ) THEN
+        ALTER TABLE public.invites
+            ADD CONSTRAINT fk_invites_profiles
+            FOREIGN KEY (used_by) REFERENCES public.profiles(id) ON DELETE SET NULL;
+    END IF;
+END $$;
+
 -- 4. ROW LEVEL SECURITY (RLS) POLICIES
 
 -- Enable RLS on all tables
